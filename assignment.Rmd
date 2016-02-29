@@ -1,0 +1,96 @@
+---
+title: "Final Project - Data Science - 08 - Practical Machine Learning"
+author: "Justin Smith"
+date: "February 27, 2015"
+output:
+  html_document:
+    keep_md: yes
+    toc: yes
+---
+# Summary
+This is my submission for the final assignment in the Practical Machine Learning Class, part of the Data Science Specialization on Coursera. The objective of this exercise was to create as accurate a machine learning model as possible using the data provided. The data consisted of a training set with 19,622 observations of 160 variables, and a test set of 20 observations with the same variables minus the outcome. The data came from several activity trackers with subjects doing one of 5 different activities. The outcome variable being predicted was a column designating one of the 5 different activities. In the analysis, variables built from other variables were scrapped (identified by searching for NA values), leaving a dataset with 52 predictors. Using 5-fold cross-validaiton and a random forest model, the estimated out-of-sample accuracy is greater than 99% (error less than 1%). 20 out of the 20 observations in the test set were correctly identified.
+  
+##1: Data Cleaning/Exploration
+  
+First, reading in the data and taking a quick peek at the size of the datasets. After reading in the data several times, I took extra care with "NA" and "#DIV/0!"...these kept making many variables character variables or factors, it was annoying.
+```{r read_data, echo=TRUE}
+#Reading in data
+train <- read.csv("pml-training.csv",na.strings=c("NA", "#DIV/0!"))
+test <- read.csv("pml-testing.csv",na.strings=c("NA", "#DIV/0!"))
+row_train <- nrow(train)
+col_train <- ncol(train)
+row_test <- nrow(test)
+col_test <- ncol(test)
+```
+
+The training dataset consists of `r row_train` indiviual observations and `r col_train` variables, while the test dataset consists of only `r row_test` observations and `r col_test` variables. Again, the test set has all the variables except the outcome, 'classe'.
+  
+Below, I drop a number of variables. The first few columns in the dataset are id and time info, I just get rid of it. I honestly have no idea what to do with it, so I'm dropping it. I don't think it's relvant in the sense that time is important in time-series data sets. 
+  
+Also, I read through the discussion section in the class and looked at the academic papers made available to us, particularly this one: http://groupware.les.inf.puc-rio.br/public/papers/2012.Ugulino.WearableComputing.HAR.Classifier.RIBBON.pdf. I tried to figure out which variables they were talking about in section 4.2, and I realized that many of the variables are built from other variables. I decided I want to drop these and first tried to filter them out using variable names, as many of them started with "stdvev" or "kurtosis" or "avg" or something along those lines. But this proved difficult, and I noticed that many of the columns I wanted to drop were mostly empty. So I filtered them out by exluding from the dataset those variables that were majority missing values.
+```{r filter_data, echo=TRUE}
+#Dropping id/time vars and creating new dataset to play with
+train2 <- train[,-c(1:7)]
+
+#Dropping vars with missing observations
+train2<-train2[, apply(train2, 2, function(x) !(sum(is.na(x))/length(x))>.5)]
+
+#Lets take a look at the data that was kept
+str(train2)
+```
+  
+Let me create two correlation plots to show that there is some remarkable patterns present in the dataset. Again, I am plotting the data twice, I am just switching how the corrplot() package groups the correlation. The groupings of high neg/pos correlations mostly relate to the x-y-z directions of the same activity device, however this is not always the case.
+```{r corr_plots, echo=TRUE}
+library(corrplot)
+M=cor(train2[,-53],use="pairwise.complete.obs")
+p = M
+corrplot(M, method="circle", type="lower", tl.cex = 0.5, tl.col = "black", tl.pos = "ld"
+         , order = "FPC")
+corrplot(M, method="circle", type="lower", tl.cex = 0.5, tl.col = "black", tl.pos = "ld"
+                  , order = "hclust")
+```
+   
+##2: Modelling/Random Forest
+   
+Using the caret package I split the training data set using a .75/.25 proportion. I use the .75 chunk for the 5-fold cross-validation to build the model. I use the .25 chunk as my test set to estimate the out-of-sample accuracy/error. Originally, I was going to do 10 folds, but I don't have the patience for my little Chromebook, so I settled for 5. Below I am running a random forest model using all 52 predictors. The final model ended up using 27 trees as it had the highest estimated accuracy.
+```{r rf_model, echo=TRUE}
+#loading caret package
+library(caret)
+
+#creating the train and test set
+inTrain = createDataPartition(train2$classe, p = 3/4)[[1]]
+training = train2[ inTrain,]
+testing = train2[-inTrain,]
+
+# 5-folds cross validation using the training created just above
+set.seed(12345)
+train_control <- trainControl(method="cv", number=5,allowParallel=T)
+#Running rf model using the folds
+rf_model <- train(classe~., data=training, trControl=train_control, method="rf")
+# summarize results...using the 5 folds it settled for using 27 trees
+print(rf_model)
+```
+   
+Here I use the test set I created from the .25 chunk of the training data. I am using it to predict the out-of-sample accruacy/error, which is greater than 99% and less than 1% respectively. That's amazing.
+```{r train_estimate, echo=TRUE}  
+#99% accuracy...dammmnnnnnnnn
+pred_train <- predict(rf_model, newdata=testing)
+confusionMatrix(pred_train, testing$classe)
+```
+   
+##3: Prediction on Test Set
+  
+The final step is to predict on the test data set of 20 observations. My first step is to match the 52 variables I kept in the training set, and then to predict using my model. I got a 20/20 on the quiz using the predicted values shown below.
+```{r test_estimate, echo=TRUE}
+#Time to have the test dataset match the training dataset...except for the "classe" var
+colnames <- names(train2[,-53])
+test2 <- test[,colnames]
+
+#Predicting on the test set
+pred_test <- predict(rf_model, newdata=test2)
+
+#Here are the predicted values
+pred_test
+```
+  
+Thanks for reading ya'll.
